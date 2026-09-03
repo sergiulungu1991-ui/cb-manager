@@ -120,15 +120,6 @@ export default function ModelClient({
             </Button>
           </div>
 
-          <a
-            href={`https://chaturbate.com/${name}/`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 block text-[12px] font-bold text-[#0b6c99] hover:underline"
-          >
-            Open on Chaturbate
-          </a>
-
           <div className="mt-3">
             <Select
               value={status}

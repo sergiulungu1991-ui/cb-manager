@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server'
-
-const API_URL = process.env.API_URL || 'http://localhost:3001'
+import { getApiUrl } from '@/lib/api'
 
 export async function POST(request: NextRequest) {
-  const res = await fetch(`${API_URL}/model/cb/sync`, {
+  const res = await fetch(`${getApiUrl()}/model/cb/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })

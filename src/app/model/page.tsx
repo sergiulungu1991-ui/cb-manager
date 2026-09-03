@@ -1,4 +1,5 @@
 import ModelClient from './model-client'
+import { getApiUrl } from '@/lib/api'
 
 type ApiModel = {
   name: string
@@ -85,7 +86,7 @@ export default async function ModelPage({ searchParams }: PageProps) {
     )
   }
 
-  const apiUrl = process.env.API_URL || 'http://localhost:3001'
+  const apiUrl = getApiUrl()
   const encodedName = encodeURIComponent(name)
 
   let model = await fetchModel(`${apiUrl}/model/cb/${encodedName}`, name)
