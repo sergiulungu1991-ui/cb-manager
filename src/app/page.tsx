@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { STATUS_OPTIONS } from '@/lib/status'
+import { fetchJson, getErrorMessage } from '@/lib/fetch-json'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -41,36 +42,25 @@ export default function Home() {
       setError(null)
 
       try {
-        const statusParam =
-          statusFilter === 'all'
-            ? ''
-            : statusFilter === 'no_status'
-              ? 'null'
-              : statusFilter
-        const statusQuery = statusParam
-          ? `&status=${encodeURIComponent(statusParam)}`
-          : ''
-        const res = await fetch(
-          `/api/models?limit=${limit}&page=${p}${statusQuery}`,
-        )
+        const params = new URLSearchParams({
+          limit: String(limit),
+          page: String(p),
+        })
 
-        if (!res.ok) {
-          throw new Error('Failed to load models')
+        if (statusFilter !== 'all') {
+          params.set('status', statusFilter === 'no_status' ? 'null' : statusFilter)
         }
 
-        const data = await res.json()
+        const data = await fetchJson<Model[]>(`/api/models?${params.toString()}`)
+
         setModels(data)
         setStatuses(
-          data.reduce(
-            (acc: Record<string, string>, model: Model) => ({
-              ...acc,
-              [model.name]: model.status || '',
-            }),
-            {},
+          Object.fromEntries(
+            data.map((model) => [model.name, model.status || '']),
           ),
         )
-      } catch (err: any) {
-        setError(err.message)
+      } catch (err) {
+        setError(getErrorMessage(err, 'Failed to load models'))
       } finally {
         setLoading(false)
       }
@@ -87,47 +77,39 @@ export default function Home() {
     setError(null)
 
     try {
-      const res = await fetch('/api/sync', {
-        method: 'POST',
-      })
-
-      if (!res.ok) {
-        throw new Error('Sync failed')
-      }
-
+      await fetchJson('/api/sync', { method: 'POST' })
       await fetchModels(page)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Sync failed'))
     } finally {
       setSyncing(false)
     }
   }
 
+  const upsert = async (
+    models: { name: string; status: string }[],
+    fallbackMessage: string,
+  ) => {
+    await fetchJson('/api/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ models }),
+    }).catch((err) => {
+      setError(getErrorMessage(err, fallbackMessage))
+      throw err
+    })
+
+    await fetchModels(page)
+  }
+
   const saveStatus = async (name: string, status: string) => {
-    setStatuses((prev) => ({
-      ...prev,
-      [name]: status,
-    }))
+    // Optimistic update keeps the grid responsive while the request is in flight.
+    setStatuses((prev) => ({ ...prev, [name]: status }))
 
     try {
-      const res = await fetch('/api/models', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name,
-          status,
-        }),
-      })
-
-      if (!res.ok) {
-        throw new Error('Save failed')
-      }
-
-      await fetchModels(page)
-    } catch (err: any) {
-      setError(err.message)
+      await upsert([{ name, status }], 'Save failed')
+    } catch {
+      setStatuses((prev) => ({ ...prev, [name]: '' }))
     }
   }
 
@@ -145,24 +127,12 @@ export default function Home() {
     setError(null)
 
     try {
-      const res = await fetch('/api/models', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          models: pendingModels.map((model) => ({
-            name: model.name,
-            status: 'reject',
-          })),
-        }),
-      })
-
-      if (!res.ok) {
-        throw new Error('Bulk reject failed')
-      }
-
-      await fetchModels(page)
-    } catch (err: any) {
-      setError(err.message)
+      await upsert(
+        pendingModels.map((model) => ({ name: model.name, status: 'reject' })),
+        'Bulk reject failed',
+      )
+    } catch {
+      // Error state is already set by `upsert`.
     } finally {
       setRejecting(false)
     }
@@ -277,7 +247,7 @@ export default function Home() {
                     className="overflow-hidden border border-[#c9c9c9] bg-white shadow-[0_1px_1px_rgba(0,0,0,0.06)]"
                   >
                     <a
-                      href={`/model?name=${encodeURIComponent(model.name)}&page=${page}`}
+                      href={`/model?name=${encodeURIComponent(model.name)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="relative block aspect-[4/3] overflow-hidden bg-[#111]"
@@ -311,7 +281,7 @@ export default function Home() {
 
                     <div className="px-1.5 pb-1.5 pt-1">
                       <a
-                        href={`/model?name=${encodeURIComponent(model.name)}&page=${page}`}
+                        href={`/model?name=${encodeURIComponent(model.name)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="block truncate text-[12px] font-bold leading-[15px] text-[#0b6c99] hover:underline"

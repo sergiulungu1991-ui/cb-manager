@@ -1,44 +1,44 @@
 import { NextRequest } from 'next/server'
-import { getApiUrl } from '@/lib/api'
+import { API_CONFIG } from '@/lib/api/config'
+import { getModels, upsertModels } from '@/lib/api/models'
+import { badRequest, jsonError, jsonOk } from '@/lib/api/response'
+import { listQuerySchema, upsertBodySchema } from '@/lib/api/schemas'
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const limit = searchParams.get('limit') || '20'
-  const page = searchParams.get('page') || '1'
-  const status = searchParams.get('status')
+  const query = listQuerySchema.safeParse(
+    Object.fromEntries(new URL(request.url).searchParams),
+  )
 
-  const backendParams = new URLSearchParams({ limit, page })
-  if (status) {
-    backendParams.set('status', status)
+  if (!query.success) {
+    return badRequest('Invalid query parameters', query.error.flatten())
   }
 
-  const res = await fetch(`${getApiUrl()}/model/cb?${backendParams.toString()}`)
-  if (!res.ok) {
-    return new Response('Failed to fetch', { status: res.status })
+  try {
+    const models = await getModels(query.data)
+    return jsonOk(models, { maxAgeSeconds: API_CONFIG.listRevalidateSeconds })
+  } catch (error) {
+    return jsonError(error)
   }
-  const data = await res.json()
-  return Response.json(data)
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  console.log('[POST /api/models] body:', JSON.stringify(body))
+  let payload: unknown
 
-  const res = await fetch(`${getApiUrl()}/model/cb/upsert`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  const resText = await res.text()
-  console.log('[POST /api/models] backend status:', res.status, 'response:', resText)
-
-  if (!res.ok) {
-    return new Response(resText, { status: res.status })
+  try {
+    payload = await request.json()
+  } catch {
+    return badRequest('Request body must be valid JSON')
   }
 
-  return new Response(resText, {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  })
+  const body = upsertBodySchema.safeParse(payload)
+
+  if (!body.success) {
+    return badRequest('Invalid upsert payload', body.error.flatten())
+  }
+
+  try {
+    return jsonOk(await upsertModels(body.data))
+  } catch (error) {
+    return jsonError(error)
+  }
 }

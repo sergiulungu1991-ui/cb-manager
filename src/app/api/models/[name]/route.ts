@@ -1,17 +1,22 @@
 import { NextRequest } from 'next/server'
-import { getApiUrl } from '@/lib/api'
+import { API_CONFIG } from '@/lib/api/config'
+import { getModel } from '@/lib/api/models'
+import { badRequest, jsonError, jsonOk } from '@/lib/api/response'
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { name: string } },
 ) {
-  const name = decodeURIComponent(params.name)
-  const res = await fetch(`${getApiUrl()}/model/cb/${name}`)
+  const name = decodeURIComponent(params.name).trim()
 
-  if (!res.ok) {
-    return new Response('Failed to fetch model', { status: res.status })
+  if (!name) {
+    return badRequest('Model name is required')
   }
 
-  const data = await res.json()
-  return Response.json(data)
+  try {
+    const model = await getModel(name)
+    return jsonOk(model, { maxAgeSeconds: API_CONFIG.listRevalidateSeconds })
+  } catch (error) {
+    return jsonError(error)
+  }
 }

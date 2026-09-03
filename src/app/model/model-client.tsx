@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { STATUS_OPTIONS } from '@/lib/status'
+import { fetchJson, getErrorMessage } from '@/lib/fetch-json'
 
 type ModelClientProps = {
   name: string
@@ -20,10 +21,9 @@ type ModelClientProps = {
 
 export default function ModelClient({
   name,
-  imageUrl: initialImageUrl,
+  imageUrl,
   status: initialStatus,
 }: ModelClientProps) {
-  const [imageUrl] = useState(initialImageUrl)
   const [status, setStatus] = useState(initialStatus)
   const [showVideo, setShowVideo] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -38,17 +38,15 @@ export default function ModelClient({
     setSaved(false)
 
     try {
-      const res = await fetch('/api/models', {
+      await fetchJson('/api/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, status }),
       })
 
-      if (!res.ok) throw new Error('Save failed')
-
       setSaved(true)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(getErrorMessage(err, 'Save failed'))
     } finally {
       setSaving(false)
     }
