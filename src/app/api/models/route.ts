@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
-
-const API_URL = process.env.API_URL || 'http://localhost:3001'
+import { getApiUrl } from '@/lib/api'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -13,7 +12,7 @@ export async function GET(request: NextRequest) {
     backendParams.set('status', status)
   }
 
-  const res = await fetch(`${API_URL}/model/cb?${backendParams.toString()}`)
+  const res = await fetch(`${getApiUrl()}/model/cb?${backendParams.toString()}`)
   if (!res.ok) {
     return new Response('Failed to fetch', { status: res.status })
   }
@@ -25,7 +24,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   console.log('[POST /api/models] body:', JSON.stringify(body))
 
-  const res = await fetch(`${API_URL}/model/cb/upsert`, {
+  const res = await fetch(`${getApiUrl()}/model/cb/upsert`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
