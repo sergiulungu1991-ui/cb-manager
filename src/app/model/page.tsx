@@ -5,6 +5,8 @@ import type { Model } from '@/lib/api/schemas'
 type PageProps = {
   searchParams: {
     name?: string | string[]
+    image_url?: string | string[]
+    status?: string | string[]
   }
 }
 
@@ -27,19 +29,21 @@ export default async function ModelPage({ searchParams }: PageProps) {
     return <Message text="Missing model name" />
   }
 
-  let model: Model
+  let model: Model | null = null
 
   try {
     model = await getModel(name)
   } catch {
-    return <Message text={`Model "${name}" was not found`} />
+    // If the model is not in Supabase (cache miss, offline, or not tracked),
+    // we still render the player using the name from the query string.
+    model = null
   }
 
   return (
     <ModelClient
-      name={model.name}
-      imageUrl={model.image_url ?? ''}
-      status={model.status ?? ''}
+      name={model?.name ?? name}
+      imageUrl={model?.image_url ?? getParam(searchParams.image_url) ?? ''}
+      status={model?.status ?? getParam(searchParams.status) ?? ''}
     />
   )
 }
