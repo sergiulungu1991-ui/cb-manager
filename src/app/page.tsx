@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
+import { STATUS_OPTIONS } from '@/lib/status'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -13,14 +12,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-type Model = { name: string; image_url: string }
+type Model = {
+  name: string
+  image_url: string
+  status?: string | null
+}
 
-const STATUS_OPTIONS = [
-  { value: 'no_content', label: 'No content', color: 'bg-gray-500 hover:bg-gray-600' },
-  { value: 'love', label: 'Love', color: 'bg-pink-600 hover:bg-pink-700' },
-  { value: 'reject', label: 'Reject', color: 'bg-red-600 hover:bg-red-700' },
-  { value: 'waiting', label: 'Waiting', color: 'bg-amber-500 hover:bg-amber-600' },
-  { value: 'asap', label: 'ASAP', color: 'bg-green-600 hover:bg-green-700' },
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'no_status', label: 'No status' },
+  ...STATUS_OPTIONS,
 ]
 
 export default function Home() {
@@ -29,33 +30,71 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [page, setPage] = useState(1)
-  const [limit] = useState(20)
+  const [limit] = useState(40)
   const [error, setError] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [rejecting, setRejecting] = useState(false)
 
-  const fetchModels = async (p: number) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/models?limit=${limit}&page=${p}`)
-      if (!res.ok) throw new Error('Failed to load')
-      const data = await res.json()
-      setModels(data)
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const fetchModels = useCallback(
+    async (p: number) => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const statusParam =
+          statusFilter === 'all'
+            ? ''
+            : statusFilter === 'no_status'
+              ? 'null'
+              : statusFilter
+        const statusQuery = statusParam
+          ? `&status=${encodeURIComponent(statusParam)}`
+          : ''
+        const res = await fetch(
+          `/api/models?limit=${limit}&page=${p}${statusQuery}`,
+        )
+
+        if (!res.ok) {
+          throw new Error('Failed to load models')
+        }
+
+        const data = await res.json()
+        setModels(data)
+        setStatuses(
+          data.reduce(
+            (acc: Record<string, string>, model: Model) => ({
+              ...acc,
+              [model.name]: model.status || '',
+            }),
+            {},
+          ),
+        )
+      } catch (err: any) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [limit, statusFilter],
+  )
 
   useEffect(() => {
     fetchModels(page)
-  }, [page])
+  }, [fetchModels, page])
 
   const sync = async () => {
     setSyncing(true)
+    setError(null)
+
     try {
-      const res = await fetch('/api/sync', { method: 'POST' })
-      if (!res.ok) throw new Error('Sync failed')
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+      })
+
+      if (!res.ok) {
+        throw new Error('Sync failed')
+      }
+
       await fetchModels(page)
     } catch (err: any) {
       setError(err.message)
@@ -65,145 +104,279 @@ export default function Home() {
   }
 
   const saveStatus = async (name: string, status: string) => {
-    setStatuses(prev => ({ ...prev, [name]: status }))
+    setStatuses((prev) => ({
+      ...prev,
+      [name]: status,
+    }))
+
     try {
       const res = await fetch('/api/models', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, status }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          status,
+        }),
       })
-      if (!res.ok) throw new Error('Save failed')
+
+      if (!res.ok) {
+        throw new Error('Save failed')
+      }
+
+      await fetchModels(page)
     } catch (err: any) {
       setError(err.message)
     }
   }
 
+  const pendingModels = useMemo(
+    () => models.filter((model) => !statuses[model.name]),
+    [models, statuses],
+  )
+
+  const rejectAll = async () => {
+    if (pendingModels.length === 0) {
+      return
+    }
+
+    setRejecting(true)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          models: pendingModels.map((model) => ({
+            name: model.name,
+            status: 'reject',
+          })),
+        }),
+      })
+
+      if (!res.ok) {
+        throw new Error('Bulk reject failed')
+      }
+
+      await fetchModels(page)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setRejecting(false)
+    }
+  }
+
   return (
-    <div className='min-h-screen bg-[#f0f1f2] font-sans'>
-      <header className='bg-white border-b border-gray-300 shadow-sm'>
-        <div className='max-w-[1440px] mx-auto px-3 py-2.5 flex items-center justify-between'>
-          <h1 className='text-[22px] font-extrabold tracking-tight leading-none'>
-            <span className='text-[#f47321]'>CHATURBATE</span>
-            <span className='text-gray-400 text-xs font-normal ml-2 align-middle'>MANAGER</span>
-          </h1>
+    <div className="min-h-screen bg-[#f2f2f2] text-[#333]">
+      <header className="border-b border-[#cfcfcf] bg-white">
+        <div className="mx-auto flex max-w-[1680px] items-center justify-between px-2.5 py-2">
+          <div className="flex items-end gap-2">
+            <h1 className="text-[23px] font-black leading-none tracking-[-1px] text-[#f47321]">
+              CHATURBATE
+            </h1>
+
+            <span className="pb-[1px] text-[10px] font-bold uppercase tracking-wide text-[#777]">
+              Manager
+            </span>
+          </div>
+
           <Button
             onClick={sync}
             disabled={syncing}
-            size='sm'
-            className='bg-[#f47321] hover:bg-[#e05f0f] text-white text-[13px] font-semibold rounded-sm shadow-none'
+            size="sm"
+            className="h-7 rounded-[2px] bg-[#f47321] px-3 text-[11px] font-bold uppercase text-white shadow-none hover:bg-[#dd6419]"
           >
-            {syncing ? <Loader2 className='w-3.5 h-3.5 animate-spin' /> : <RefreshCw className='w-3.5 h-3.5' />}
-            SYNC
+            {syncing ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
+
+            Sync
           </Button>
-        </div>
-        <div className='bg-[#0b5c7d]'>
-          <div className='max-w-[1440px] mx-auto px-3 flex text-[13px] font-semibold'>
-            <span className='px-4 py-1.5 bg-[#f47321] text-white rounded-t-sm'>FEATURED</span>
-            <span className='px-4 py-1.5 text-white/80 hover:bg-white/10 cursor-default'>FEMALE</span>
-            <span className='px-4 py-1.5 text-white/80 hover:bg-white/10 cursor-default'>COUPLES</span>
-            <span className='px-4 py-1.5 text-white/80 hover:bg-white/10 cursor-default'>PAGE {page}</span>
-          </div>
         </div>
       </header>
 
-      <main className='max-w-[1440px] mx-auto px-3 py-3'>
-        {error && <p className='text-red-600 mb-3 text-sm'>{error}</p>}
+      <main className="mx-auto max-w-[1680px] px-2.5 py-2.5">
+        {error && (
+          <div className="mb-2 border border-red-300 bg-red-50 px-2 py-1.5 text-[12px] text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="mb-2.5 flex items-center justify-end gap-2">
+          <span className="text-[11px] font-bold uppercase text-[#777]">
+            Filter by status
+          </span>
+
+          <Select
+            value={statusFilter}
+            onValueChange={(value) => {
+              setStatusFilter(value || 'all')
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className="h-7 w-[150px] rounded-[2px] border-[#cfcfcf] bg-white px-2 text-[11px] shadow-none focus:ring-1 focus:ring-[#f47321]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="min-w-[150px] rounded-[2px] border border-[#cfcfcf] bg-white text-[#333] shadow-md">
+              {FILTER_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option.value}
+                  value={option.value}
+                  className="py-1 text-[11px]"
+                >
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            onClick={rejectAll}
+            disabled={rejecting || pendingModels.length === 0}
+            size="sm"
+            className="h-7 rounded-[2px] bg-[#c73f3f] px-3 text-[11px] font-bold uppercase text-white shadow-none hover:bg-[#a32d2d] disabled:opacity-50"
+          >
+            {rejecting ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+
+            Reject all no status ({pendingModels.length})
+          </Button>
+        </div>
 
         {loading ? (
-          <div className='flex justify-center p-16'>
-            <Loader2 className='w-8 h-8 animate-spin text-[#f47321]' />
+          <div className="flex min-h-[320px] items-center justify-center">
+            <Loader2 className="h-7 w-7 animate-spin text-[#f47321]" />
           </div>
         ) : (
           <>
-            <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-[6px]'>
-              {models.map((m, i) => {
-                const st = STATUS_OPTIONS.find(o => o.value === statuses[m.name])
+            <div
+              className="
+                grid
+                grid-cols-2
+                gap-[5px]
+                sm:grid-cols-3
+                md:grid-cols-4
+                lg:grid-cols-5
+                xl:grid-cols-6
+                2xl:grid-cols-8
+              "
+            >
+              {models.map((model) => {
+                const status = STATUS_OPTIONS.find(
+                  (option) => option.value === statuses[model.name],
+                )
+
                 return (
-                  <Card
-                    key={m.name}
-                    className='group p-0 rounded-[3px] border-[#d6d6d6] bg-white shadow-none hover:shadow-md transition-shadow overflow-hidden'
+                  <article
+                    key={model.name}
+                    className="overflow-hidden border border-[#c9c9c9] bg-white shadow-[0_1px_1px_rgba(0,0,0,0.06)]"
                   >
                     <a
-                      href={`https://chaturbate.com/${m.name}/`}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      className='relative block aspect-[16/10] overflow-hidden bg-black'
+                      href={`/model?name=${encodeURIComponent(model.name)}&page=${page}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="relative block aspect-[4/3] overflow-hidden bg-[#111]"
                     >
-                      <img src={m.image_url} alt={m.name} className='w-full h-full object-cover' />
-                      <span className='absolute top-1 right-1 text-white/70 hover:text-white drop-shadow'>
-                        <svg viewBox='0 0 24 24' className='w-[18px] h-[18px] fill-current'>
-                          <path d='M12 2l2.9 6.26L21.5 9.3l-4.75 4.4 1.2 6.55L12 17.1l-5.95 3.15 1.2-6.55L2.5 9.3l6.6-1.04L12 2z'/>
-                        </svg>
-                      </span>
-                      {st && (
-                        <Badge className={`absolute bottom-1 right-0 rounded-none rounded-tl-sm px-2 py-0.5 text-[10px] font-bold uppercase text-white border-0 ${st.color}`}>
-                          {st.label}
-                        </Badge>
+                      <img
+                        src={model.image_url}
+                        alt={model.name}
+                        className="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.015]"
+                      />
+
+                      {status && (
+                        <span
+                          className={`
+                            absolute
+                            bottom-0
+                            right-0
+                            px-1.5
+                            py-[2px]
+                            text-[9px]
+                            font-bold
+                            uppercase
+                            leading-none
+                            text-white
+                            ${status.badge}
+                          `}
+                        >
+                          {status.label}
+                        </span>
                       )}
                     </a>
-                    <CardContent className='p-1.5 space-y-0.5'>
-                      <div className='flex items-center gap-1'>
-                        <a
-                          href={`https://chaturbate.com/${m.name}/`}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          className='text-[13px] font-bold text-[#0c6a93] hover:underline truncate'
-                        >
-                          {m.name}
-                        </a>
-                        <span className='ml-auto text-[11px] text-gray-500 font-semibold'>{18 + ((i * 7) % 12)}</span>
-                        <svg viewBox='0 0 24 24' className='w-3.5 h-3.5 shrink-0 fill-[#d8618f]'>
-                          <path d='M12 4a4 4 0 110 8 4 4 0 010-8zm0 10c4.42 0 8 1.79 8 4v2H4v-2c0-2.21 3.58-4 8-4z'/>
-                        </svg>
-                      </div>
 
-                      <Select
-                        value={statuses[m.name] || ''}
-                        onValueChange={(value) => value && saveStatus(m.name, value)}
+                    <div className="px-1.5 pb-1.5 pt-1">
+                      <a
+                        href={`/model?name=${encodeURIComponent(model.name)}&page=${page}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block truncate text-[12px] font-bold leading-[15px] text-[#0b6c99] hover:underline"
                       >
-                        <SelectTrigger className='w-full h-6 text-[11px] text-gray-700 bg-white border-gray-200 rounded-sm px-1.5 py-0.5 focus:ring-[#f47321] focus:ring-1'>
-                          <SelectValue placeholder='Set status...' className='text-[11px]' />
-                        </SelectTrigger>
-                        <SelectContent className='min-w-[140px] text-[12px]'>
-                          {STATUS_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className='text-[12px] py-1'>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        {model.name}
+                      </a>
 
-                      <div className='flex items-center gap-1 text-[10.5px] text-gray-500 border-t border-gray-100 pt-0.5'>
-                        <svg viewBox='0 0 24 24' className='w-3 h-3 fill-gray-400'>
-                          <path d='M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z'/>
-                        </svg>
-                        <span>{((i * 13) % 60) / 10 + 0.5} hrs, {(1000 + i * 1837).toLocaleString()} viewers</span>
+                      <div className="mt-1 border-t border-[#ececec] pt-1">
+                        <Select
+                          value={statuses[model.name] || ''}
+                          onValueChange={(value) => {
+                            if (value) {
+                              saveStatus(model.name, value)
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-[24px] w-full rounded-[2px] border-[#cfcfcf] bg-white px-1.5 py-0 text-[10px] shadow-none focus:ring-1 focus:ring-[#f47321]">
+                            <SelectValue placeholder="Set status..." />
+                          </SelectTrigger>
+                          <SelectContent className="min-w-[130px] rounded-[2px] border border-[#cfcfcf] bg-white text-[#333] shadow-md">
+                            {STATUS_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                className="py-1 text-[11px]"
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </article>
                 )
               })}
             </div>
 
-            <div className='flex justify-center items-center gap-1 mt-6 pb-10'>
+            <div className="mt-4 flex items-center justify-center gap-1 pb-8">
               <Button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() =>
+                  setPage((current) => Math.max(1, current - 1))
+                }
                 disabled={page <= 1}
-                variant='outline'
-                size='sm'
-                className='text-[#0c6a93] border-[#d6d6d6] hover:bg-gray-50 rounded-sm text-[13px] font-semibold disabled:opacity-40'
+                variant="outline"
+                size="sm"
+                className="h-7 rounded-[2px] border-[#c7c7c7] bg-white px-2.5 text-[11px] font-bold text-[#0b6c99] shadow-none"
               >
-                &laquo; prev
+                « prev
               </Button>
-              <span className='px-3 py-1.5 text-[13px] bg-[#0c6a93] text-white font-bold rounded-sm'>{page}</span>
+
+              <span className="flex h-7 min-w-7 items-center justify-center bg-[#0b6c99] px-2 text-[11px] font-bold text-white">
+                {page}
+              </span>
+
               <Button
-                onClick={() => setPage(p => p + 1)}
+                onClick={() =>
+                  setPage((current) => current + 1)
+                }
                 disabled={models.length < limit}
-                variant='outline'
-                size='sm'
-                className='text-[#0c6a93] border-[#d6d6d6] hover:bg-gray-50 rounded-sm text-[13px] font-semibold disabled:opacity-40'
+                variant="outline"
+                size="sm"
+                className="h-7 rounded-[2px] border-[#c7c7c7] bg-white px-2.5 text-[11px] font-bold text-[#0b6c99] shadow-none"
               >
-                next &raquo;
+                next »
               </Button>
             </div>
           </>

@@ -6,7 +6,14 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const limit = searchParams.get('limit') || '20'
   const page = searchParams.get('page') || '1'
-  const res = await fetch(`${API_URL}/model/cb?limit=${limit}&page=${page}`)
+  const status = searchParams.get('status')
+
+  const backendParams = new URLSearchParams({ limit, page })
+  if (status) {
+    backendParams.set('status', status)
+  }
+
+  const res = await fetch(`${API_URL}/model/cb?${backendParams.toString()}`)
   if (!res.ok) {
     return new Response('Failed to fetch', { status: res.status })
   }
@@ -16,14 +23,23 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
-  const res = await fetch(`${API_URL}/model/cb`, {
+  console.log('[POST /api/models] body:', JSON.stringify(body))
+
+  const res = await fetch(`${API_URL}/model/cb/upsert`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+
+  const resText = await res.text()
+  console.log('[POST /api/models] backend status:', res.status, 'response:', resText)
+
   if (!res.ok) {
-    return new Response('Failed to save', { status: res.status })
+    return new Response(resText, { status: res.status })
   }
-  const data = await res.json()
-  return Response.json(data)
+
+  return new Response(resText, {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
