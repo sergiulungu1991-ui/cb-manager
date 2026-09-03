@@ -15,7 +15,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const models = await getModels(query.data)
-    return jsonOk(models, { maxAgeSeconds: API_CONFIG.listRevalidateSeconds })
+    const hasFilter = Boolean(query.data.status)
+    return jsonOk(models, {
+      maxAgeSeconds: hasFilter ? 0 : API_CONFIG.listRevalidateSeconds,
+    })
   } catch (error) {
     return jsonError(error)
   }

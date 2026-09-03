@@ -26,9 +26,13 @@ function buildListPath({ limit, page, status }: ListQuery): string {
 }
 
 export async function getModels(query: ListQuery): Promise<Model[]> {
+  const hasFilter = Boolean(query.status)
+
   return apiRequest(buildListPath(query), modelListSchema, {
-    // Lists are read-heavy and tolerate short staleness (DATE POT FI CACHE IN API!)
-    revalidateSeconds: API_CONFIG.listRevalidateSeconds,
+    // Filtered lists must always be fresh so a status update is reflected
+    // immediately. The unfiltered list can tolerate short staleness.
+    // (DATE POT FI CACHE IN API!)
+    revalidateSeconds: hasFilter ? 0 : API_CONFIG.listRevalidateSeconds,
     tags: [CACHE_TAGS.models],
   })
 }
@@ -45,7 +49,7 @@ export async function getModel(name: string): Promise<Model> {
   for (const path of candidates) {
     try {
       const rows = await apiRequest(path, modelListSchema, {
-        revalidateSeconds: API_CONFIG.listRevalidateSeconds,
+        revalidateSeconds: 0,
         tags: [CACHE_TAGS.models, CACHE_TAGS.model(name)],
       })
 

@@ -29,7 +29,7 @@ function buildInit(options: RequestOptions, signal: AbortSignal): RequestInit {
     init.body = JSON.stringify(options.body)
   }
 
-  if (options.revalidateSeconds === undefined) {
+  if (options.revalidateSeconds === undefined || options.revalidateSeconds === 0) {
     init.cache = 'no-store'
   } else {
     init.next = { revalidate: options.revalidateSeconds, tags: options.tags }
